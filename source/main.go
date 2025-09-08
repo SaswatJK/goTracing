@@ -67,9 +67,22 @@ type Camera struct {
 	up       vec3
 }
 
+type Sphere struct {
+	center vec3
+	color  vec3
+	radius float32
+}
+
+type Ray struct {
+	origin    vec3
+	direction vec3
+	color     vec3
+}
+
 type Scene struct {
 	sceneImage *image.RGBA
 	camera     *Camera
+	objects    *Sphere
 }
 
 /*
@@ -87,6 +100,28 @@ func initializeScene() *Scene {
 			right:    vec3{1.0, 0.0, 0.0},
 			up:       vec3{0.0, 1.0, 0.0},
 		},
+		objects: &Sphere{
+			center: vec3{0.0, 0.0, -100.0},
+			color:  vec3{1.0, 0.0, 0.0},
+			radius: 20.0,
+		},
+	}
+}
+
+func extractColor(vColor vec3) color.RGBA {
+	var temp color.RGBA
+	temp = color.RGBA{uint8(vColor.r * 255), uint8(vColor.g * 255), uint8(vColor.b * 255), 255}
+	return temp
+}
+
+func hitSphere(r *Ray, object *Sphere) {
+	var OC vec3 = sub(object.center, r.origin)
+	a := dot(r.direction, r.direction)
+	b := -2.0 * dot(r.direction, OC)
+	c := dot(OC, OC) - (object.radius * object.radius)
+	discriminant := b*b - 4*a*c
+	if discriminant > 0.0 {
+		r.color = object.color
 	}
 }
 
@@ -109,6 +144,12 @@ func colorScene(currScene *Scene) { //Color it white for now.
 			posRayDir.g = clampMax(rayDir.g, 0.0)
 			posRayDir.b = clampMax(rayDir.b, 0.0)
 			pixelColor = color.RGBA{uint8(posRayDir.r * 255), uint8(posRayDir.g * 255), uint8(posRayDir.b * 255), 255}
+			var primaryRay Ray
+			primaryRay.direction = rayDir
+			primaryRay.origin = currScene.camera.position
+			primaryRay.color = vec3{0.0, 0.0, 0.0}
+			hitSphere(&primaryRay, currScene.objects)
+			pixelColor = extractColor(primaryRay.color)
 			currScene.sceneImage.Set(j, i, pixelColor)
 		}
 	}
