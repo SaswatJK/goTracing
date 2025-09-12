@@ -5,6 +5,7 @@ import "image"
 import "image/color"
 import "image/jpeg"
 import "os"
+import "math"
 
 const VIEWPORT_WIDTH int = 500
 const VIEWPORT_HEIGHT int = 500
@@ -15,6 +16,15 @@ type vec3 struct {
 	r float32
 	g float32
 	b float32
+}
+
+func vecNormalize(v vec3) vec3 {
+	var temp vec3
+	mag := math.Sqrt((float64(v.r) * float64(v.r)) + (float64(v.g) * float64(v.g)) + (float64(v.b) * float64(v.b)))
+	temp.r = v.r / float32(mag)
+	temp.g = v.g / float32(mag)
+	temp.b = v.b / float32(mag)
+	return temp
 }
 
 func add(v1, v2 vec3) vec3 {
@@ -82,7 +92,7 @@ type Ray struct {
 type Scene struct {
 	sceneImage *image.RGBA
 	camera     *Camera
-	objects    *Sphere
+	objects    *[]Sphere
 }
 
 /*
@@ -94,16 +104,23 @@ type Scene struct {
 func initializeScene() *Scene {
 	return &Scene{
 		sceneImage: image.NewRGBA(image.Rect(0, 0, VIEWPORT_WIDTH, VIEWPORT_HEIGHT)),
-		camera: &Camera{
+		camera: &Camera{ //We will normalize all the directions.
 			position: vec3{0.0, 0.0, 0.0},
-			view:     vec3{0.0, 0.0, -1.0},
-			right:    vec3{1.0, 0.0, 0.0},
-			up:       vec3{0.0, 1.0, 0.0},
+			view:     vecNormalize(vec3{20.0, 0.0, -100.0}),
+			right:    vecNormalize(vec3{1.0, 0.0, 0.0}),
+			up:       vecNormalize(vec3{0.0, 1.0, 0.0}),
 		},
-		objects: &Sphere{
-			center: vec3{0.0, 0.0, -100.0},
-			color:  vec3{1.0, 0.0, 0.0},
-			radius: 20.0,
+		objects: &[]Sphere{
+			{
+				center: vec3{0.0, 00.0, -100.0},
+				color:  vec3{1.0, 0.0, 0.0},
+				radius: 20.0,
+			},
+			{
+				center: vec3{-20.0, 00.0, -80.0},
+				color:  vec3{0.0, 0.0, 1.0},
+				radius: 20.0,
+			},
 		},
 	}
 }
@@ -120,8 +137,9 @@ func hitSphere(r *Ray, object *Sphere) {
 	b := -2.0 * dot(r.direction, OC)
 	c := dot(OC, OC) - (object.radius * object.radius)
 	discriminant := b*b - 4*a*c
-	if discriminant > 0.0 {
-		r.color = object.color
+	if discriminant >= 0.0 { // > means 2 real solutions, (the ray goes through the sphere and goes out of it), = means 1 solution (tangent to the sphere).
+		immediateColor := mulWithScalar(object.color, 0.3)
+		r.color = add(immediateColor, r.color)
 	}
 }
 
@@ -139,16 +157,13 @@ func colorScene(currScene *Scene) { //Color it white for now.
 			var rayDir vec3
 			rayDir = sub(mulWithScalar(currScene.camera.right, x), mulWithScalar(currScene.camera.up, y))
 			rayDir = add(rayDir, currScene.camera.view)
-			var posRayDir vec3
-			posRayDir.r = clampMax(rayDir.r, 0.0)
-			posRayDir.g = clampMax(rayDir.g, 0.0)
-			posRayDir.b = clampMax(rayDir.b, 0.0)
-			pixelColor = color.RGBA{uint8(posRayDir.r * 255), uint8(posRayDir.g * 255), uint8(posRayDir.b * 255), 255}
 			var primaryRay Ray
 			primaryRay.direction = rayDir
 			primaryRay.origin = currScene.camera.position
 			primaryRay.color = vec3{0.0, 0.0, 0.0}
-			hitSphere(&primaryRay, currScene.objects)
+			for i := range *currScene.objects {
+				hitSphere(&primaryRay, &(*currScene.objects)[i])
+			}
 			pixelColor = extractColor(primaryRay.color)
 			currScene.sceneImage.Set(j, i, pixelColor)
 		}
@@ -156,7 +171,6 @@ func colorScene(currScene *Scene) { //Color it white for now.
 }
 
 func main() {
-
 	currentScene := initializeScene()
 	colorScene(currentScene)
 	file, err := os.Create("output.jpg") //Since this will already be in the build directory, don't need to do relative path.
