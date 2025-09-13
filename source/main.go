@@ -93,10 +93,11 @@ type Sphere struct {
 }
 
 type Ray struct {
-	origin    vec3
-	direction vec3
-	color     vec3
-	prevRI    float32
+	origin       vec3
+	direction    vec3
+	color        vec3
+	prevRI       float32
+	transparency float32
 }
 
 type Scene struct {
@@ -116,24 +117,24 @@ func initializeScene() *Scene {
 		sceneImage: image.NewRGBA(image.Rect(0, 0, VIEWPORT_WIDTH, VIEWPORT_HEIGHT)),
 		camera: &Camera{ //We will normalize all the directions.
 			position: vec3{0.0, 0.0, 0.0},
-			view:     vecNormalize(vec3{20.0, 0.0, -100.0}),
+			view:     vecNormalize(vec3{0.0, 0.0, -100.0}),
 			right:    vecNormalize(vec3{1.0, 0.0, 0.0}),
 			up:       vecNormalize(vec3{0.0, 1.0, 0.0}),
 		},
 		objects: &[]Sphere{
+			{
+				center:          vec3{0.0, 00.0, -55.0},
+				color:           vec3{0.0, 0.0, 0.3},
+				radius:          30.0,
+				transparency:    1.0,
+				refractiveIndex: 1.33,
+			},
 			{
 				center:          vec3{0.0, 00.0, -100.0},
 				color:           vec3{1.0, 0.0, 0.0},
 				radius:          30.0,
 				transparency:    0.0,
 				refractiveIndex: 0.0,
-			},
-			{
-				center:          vec3{0.0, 00.0, -55.0},
-				color:           vec3{0.0, 0.0, 0.3},
-				radius:          10.0,
-				transparency:    1.0,
-				refractiveIndex: 1.8,
 			},
 		},
 	}
@@ -151,15 +152,17 @@ func hitSphere(r *Ray, object *Sphere) {
 	b := -2.0 * dot(r.direction, OC)
 	c := dot(OC, OC) - (object.radius * object.radius)
 	discriminant := b*b - 4*a*c
-	if discriminant >= 0.0 { // > means 2 real solutions, (the ray goes through the sphere and goes out of it), = means 1 solution (tangent to the sphere).
+	if discriminant > 0.0 { // > means 2 real solutions, (the ray goes through the sphere and goes out of it), = means 1 solution (tangent to the sphere).
 		//Solving the equatin gives us 't' from which we can find the point of intersection and find the normal by subtracting from that point, the center.
-		t := (-b + float32(math.Sqrt(float64(discriminant)))) / (2 * a)
+		r.transparency = object.transparency
+		t := (-b - float32(math.Sqrt(float64(discriminant)))) / (2 * a)
+		//I realized that this refraction may not work because of the fact that the ray origin is still coming from the old origin.
 		var intersectionPoint vec3 = mulWithScalar(r.origin, t)
 		var normal vec3 = vecNormalize(vecSub(intersectionPoint, object.center))
-		//immediateColor := mulWithScalar(object.color, 0.3)
-		immediateColor := r.direction
+		immediateColor := mulWithScalar(object.color, 1.0)
+		//immediateColor := r.direction
 		r.color = vecAdd(immediateColor, r.color)
-		if object.transparency == 0.0 {
+		if r.transparency == 0.0 {
 			return
 		}
 		incidentAngleRadians := math.Acos(float64(dot(r.direction, normal) / (vecMagnitude(r.direction) * vecMagnitude(normal))))
@@ -170,12 +173,39 @@ func hitSphere(r *Ray, object *Sphere) {
 		tangent := vecNormalize(vecSub(r.direction, mulWithScalar(normal, dot(r.direction, normal)))) //Projecting the incident vector to the tangent plane by removing the 'normal' component. (v.n) -> length of v projected to n (since n is normalized) || (v.n)n = vector pinting in directon n with the length of the projection. Subtract that from v, and we get the remaining (the tangent).
 		refractedNormalComponent := mulWithScalar(normal, float32(math.Cos(refractiveAngleRadians)))
 		refractedTangentComponent := mulWithScalar(tangent, float32(math.Sin(refractiveAngleRadians)))
+		r.prevRI = object.refractiveIndex
+		r.origin = intersectionPoint
+		r.direction = vecAdd(refractedNormalComponent, refractedTangentComponent)
+		OC = vecSub(object.center, r.origin)
+		a = dot(r.direction, r.direction)
+		b = -2.0 * dot(r.direction, OC)
+		c = dot(OC, OC) - (object.radius * object.radius)
+		t = (-b + float32(math.Sqrt(float64(discriminant)))) / (2 * a)
+		intersectionPoint = mulWithScalar(r.origin, t)
+		normal = vecNormalize(vecSub(object.center, intersectionPoint))
+		incidentAngleRadians = math.Acos(float64(dot(r.direction, normal) / (vecMagnitude(r.direction) * vecMagnitude(normal))))
+		//Snell's law: n1sintheta1 = n2sintheta2 || ni = refractive indices of i || thetai = angles with normal of i.
+		refractiveAngleRadiansSin = (r.prevRI / 1.0) * float32(math.Sin(incidentAngleRadians))
+		refractiveAngleRadians = math.Asin(float64(refractiveAngleRadiansSin))
+		//normal = negate(normal)
+		tangent = vecNormalize(vecSub(r.direction, mulWithScalar(normal, dot(r.direction, normal)))) //Projecting the incident vector to the tangent plane by removing the 'normal' component. (v.n) -> length of v projected to n (since n is normalized) || (v.n)n = vector pinting in directon n with the length of the projection. Subtract that from v, and we get the remaining (the tangent).
+		refractedNormalComponent = mulWithScalar(normal, float32(math.Cos(refractiveAngleRadians)))
+		refractedTangentComponent = mulWithScalar(tangent, float32(math.Sin(refractiveAngleRadians)))
+		r.origin = intersectionPoint
 		r.direction = vecAdd(refractedNormalComponent, refractedTangentComponent)
 		//r.direction = vecAdd(mulWithScalar(vecAdd(refractedNormalComponent, refractedTangentComponent), 0), r.direction)
 		//randSource := rand.NewSource(1171)
 		//newRand := rand.New(randSource)
 		//newRand.float32 gives a 0-1 float32 value in the interval [0.0, 1.0) (Half Open)
 		//var dirOffset vec3 = vec3{newRand.Float32() * 0.2, newRand.Float32() * 0.2, newRand.Float32() * 0.2}
+	}
+	if discriminant == 0.0 { //tangent
+		immediateColor := r.direction
+		r.transparency = object.transparency
+		if r.transparency == 0 {
+			r.color = vecAdd(immediateColor, r.color)
+			return
+		}
 	}
 }
 
@@ -198,6 +228,7 @@ func colorScene(currScene *Scene) { //Color it white for now.
 			primaryRay.origin = currScene.camera.position
 			primaryRay.color = vec3{0.0, 0.0, 0.0}
 			primaryRay.prevRI = 1.0
+			primaryRay.transparency = 1.0
 			for i := range *currScene.objects {
 				hitSphere(&primaryRay, &(*currScene.objects)[i])
 			}
