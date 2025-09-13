@@ -6,6 +6,7 @@ import (
 	"image/color"
 	"image/jpeg"
 	"math"
+	"math/rand"
 	"os"
 )
 
@@ -20,12 +21,7 @@ type vec3 struct {
 	b float32
 }
 
-func vecMagnitude(v vec3) float32 {
-	mag := math.Sqrt((float64(v.r) * float64(v.r)) + (float64(v.g) * float64(v.g)) + (float64(v.b) * float64(v.b)))
-	return float32(mag)
-}
-
-func vecNormalize(v vec3) vec3 { //Why inline it? Cause I am doing it millions of times, cause it's a game?
+func vecNormalize(v vec3) vec3 {
 	var temp vec3
 	mag := math.Sqrt((float64(v.r) * float64(v.r)) + (float64(v.g) * float64(v.g)) + (float64(v.b) * float64(v.b)))
 	temp.r = v.r / float32(mag)
@@ -50,7 +46,7 @@ func negate(v vec3) vec3 {
 	return temp
 }
 
-func vecSub(v1, v2 vec3) vec3 { //v1 - v2
+func vecSub(v1, v2 vec3) vec3 {
 	var nv2 vec3
 	nv2 = v2
 	nv2 = negate(nv2)
@@ -85,18 +81,16 @@ type Camera struct {
 }
 
 type Sphere struct {
-	center          vec3
-	color           vec3
-	radius          float32
-	transparency    float32
-	refractiveIndex float32
+	center       vec3
+	color        vec3
+	radius       float32
+	transparency float32
 }
 
 type Ray struct {
 	origin    vec3
 	direction vec3
 	color     vec3
-	prevRI    float32
 }
 
 type Scene struct {
@@ -122,18 +116,14 @@ func initializeScene() *Scene {
 		},
 		objects: &[]Sphere{
 			{
-				center:          vec3{0.0, 00.0, -100.0},
-				color:           vec3{1.0, 0.0, 0.0},
-				radius:          30.0,
-				transparency:    0.0,
-				refractiveIndex: 0.0,
+				center: vec3{0.0, 00.0, -100.0},
+				color:  vec3{1.0, 0.0, 0.0},
+				radius: 20.0,
 			},
 			{
-				center:          vec3{0.0, 00.0, -55.0},
-				color:           vec3{0.0, 0.0, 0.3},
-				radius:          10.0,
-				transparency:    1.0,
-				refractiveIndex: 1.8,
+				center: vec3{-20.0, 00.0, -80.0},
+				color:  vec3{0.0, 0.0, 1.0},
+				radius: 20.0,
 			},
 		},
 	}
@@ -155,27 +145,13 @@ func hitSphere(r *Ray, object *Sphere) {
 		//Solving the equatin gives us 't' from which we can find the point of intersection and find the normal by subtracting from that point, the center.
 		t := (-b + float32(math.Sqrt(float64(discriminant)))) / (2 * a)
 		var intersectionPoint vec3 = mulWithScalar(r.origin, t)
-		var normal vec3 = vecNormalize(vecSub(intersectionPoint, object.center))
-		//immediateColor := mulWithScalar(object.color, 0.3)
-		immediateColor := r.direction
+		immediateColor := mulWithScalar(object.color, 0.3)
 		r.color = vecAdd(immediateColor, r.color)
-		if object.transparency == 0.0 {
-			return
-		}
-		incidentAngleRadians := math.Acos(float64(dot(r.direction, normal) / (vecMagnitude(r.direction) * vecMagnitude(normal))))
-		//Snell's law: n1sintheta1 = n2sintheta2 || ni = refractive indices of i || thetai = angles with normal of i.
-		refractiveAngleRadiansSin := (r.prevRI / object.refractiveIndex) * float32(math.Sin(incidentAngleRadians))
-		refractiveAngleRadians := math.Asin(float64(refractiveAngleRadiansSin))
-		//normal = negate(normal)
-		tangent := vecNormalize(vecSub(r.direction, mulWithScalar(normal, dot(r.direction, normal)))) //Projecting the incident vector to the tangent plane by removing the 'normal' component. (v.n) -> length of v projected to n (since n is normalized) || (v.n)n = vector pinting in directon n with the length of the projection. Subtract that from v, and we get the remaining (the tangent).
-		refractedNormalComponent := mulWithScalar(normal, float32(math.Cos(refractiveAngleRadians)))
-		refractedTangentComponent := mulWithScalar(tangent, float32(math.Sin(refractiveAngleRadians)))
-		r.direction = vecAdd(refractedNormalComponent, refractedTangentComponent)
-		//r.direction = vecAdd(mulWithScalar(vecAdd(refractedNormalComponent, refractedTangentComponent), 0), r.direction)
-		//randSource := rand.NewSource(1171)
-		//newRand := rand.New(randSource)
+		randSource := rand.NewSource(1171)
+		newRand := rand.New(randSource)
 		//newRand.float32 gives a 0-1 float32 value in the interval [0.0, 1.0) (Half Open)
-		//var dirOffset vec3 = vec3{newRand.Float32() * 0.2, newRand.Float32() * 0.2, newRand.Float32() * 0.2}
+		var dirOffset vec3 = vec3{newRand.Float32() * 0.2, newRand.Float32() * 0.2, newRand.Float32() * 0.2}
+		r.direction = vecAdd(r.direction, dirOffset)
 	}
 }
 
@@ -197,7 +173,6 @@ func colorScene(currScene *Scene) { //Color it white for now.
 			primaryRay.direction = rayDir
 			primaryRay.origin = currScene.camera.position
 			primaryRay.color = vec3{0.0, 0.0, 0.0}
-			primaryRay.prevRI = 1.0
 			for i := range *currScene.objects {
 				hitSphere(&primaryRay, &(*currScene.objects)[i])
 			}
