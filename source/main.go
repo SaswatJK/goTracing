@@ -9,10 +9,11 @@ import (
 	"os"
 )
 
-const VIEWPORT_WIDTH int = 500
-const VIEWPORT_HEIGHT int = 500
+const VIEWPORT_WIDTH int = 1000
+const VIEWPORT_HEIGHT int = 1000
 const IMAGE_WIDTH int = 2000
 const IMAGE_HEIGHT int = 2000
+const AIR_RI float32 = 1.0
 
 type vec3 struct {
 	r float32
@@ -123,7 +124,7 @@ func initializeScene() *Scene {
 		},
 		objects: &[]Sphere{
 			{
-				center:          vec3{0.0, 00.0, -55.0},
+				center:          vec3{-20.0, 00.0, -55.0},
 				color:           vec3{0.0, 0.0, 0.3},
 				radius:          30.0,
 				transparency:    1.0,
@@ -134,7 +135,7 @@ func initializeScene() *Scene {
 				color:           vec3{1.0, 0.0, 0.0},
 				radius:          30.0,
 				transparency:    0.0,
-				refractiveIndex: 0.0,
+				refractiveIndex: AIR_RI,
 			},
 		},
 	}
@@ -156,56 +157,43 @@ func hitSphere(r *Ray, object *Sphere) {
 		//Solving the equatin gives us 't' from which we can find the point of intersection and find the normal by subtracting from that point, the center.
 		r.transparency = object.transparency
 		t := (-b - float32(math.Sqrt(float64(discriminant)))) / (2 * a)
-		//I realized that this refraction may not work because of the fact that the ray origin is still coming from the old origin.
-		var intersectionPoint vec3 = mulWithScalar(r.origin, t)
-		var normal vec3 = vecNormalize(vecSub(intersectionPoint, object.center))
-		immediateColor := mulWithScalar(object.color, 1.0)
+		var intersectionPoint vec3 = vecAdd(mulWithScalar(r.direction, t), r.origin) //Intersection point to find the normal.
+		var normal vec3 = vecNormalize(vecSub(intersectionPoint, object.center))     //normal from the center to the intersection point, so towards the incident ray.
 		//immediateColor := r.direction
-		r.color = vecAdd(immediateColor, r.color)
+		immediateColor := mulWithScalar(object.color, 1.0)
 		if r.transparency == 0.0 {
+			r.color = vecAdd(immediateColor, r.color)
+			//r.color = normal
 			return
 		}
-		incidentAngleRadians := math.Acos(float64(dot(r.direction, normal) / (vecMagnitude(r.direction) * vecMagnitude(normal))))
+		incidentAngleRadiansCos := -dot(r.direction, normal) //We want the acute angle, and since normal and the incident direction are going to be against eachother.
 		//Snell's law: n1sintheta1 = n2sintheta2 || ni = refractive indices of i || thetai = angles with normal of i.
-		refractiveAngleRadiansSin := (r.prevRI / object.refractiveIndex) * float32(math.Sin(incidentAngleRadians))
-		refractiveAngleRadians := math.Asin(float64(refractiveAngleRadiansSin))
-		//normal = negate(normal)
-		tangent := vecNormalize(vecSub(r.direction, mulWithScalar(normal, dot(r.direction, normal)))) //Projecting the incident vector to the tangent plane by removing the 'normal' component. (v.n) -> length of v projected to n (since n is normalized) || (v.n)n = vector pinting in directon n with the length of the projection. Subtract that from v, and we get the remaining (the tangent).
-		refractedNormalComponent := mulWithScalar(normal, float32(math.Cos(refractiveAngleRadians)))
-		refractedTangentComponent := mulWithScalar(tangent, float32(math.Sin(refractiveAngleRadians)))
+		refractiveAngleRadiansSin := math.Pow(float64((r.prevRI/object.refractiveIndex)), 2) * float64((1 - incidentAngleRadiansCos))
+		refractiveAngleRadiansCos := math.Sqrt(1 - refractiveAngleRadiansSin)
 		r.prevRI = object.refractiveIndex
 		r.origin = intersectionPoint
-		r.direction = vecAdd(refractedNormalComponent, refractedTangentComponent)
+		r.direction = vecAdd(mulWithScalar(r.direction, (r.prevRI/object.refractiveIndex)), mulWithScalar(normal, (r.prevRI/object.refractiveIndex)*incidentAngleRadiansCos-float32(refractiveAngleRadiansCos)))
 		OC = vecSub(object.center, r.origin)
 		a = dot(r.direction, r.direction)
 		b = -2.0 * dot(r.direction, OC)
 		c = dot(OC, OC) - (object.radius * object.radius)
+		discriminant = b*b - 4*a*c
 		t = (-b + float32(math.Sqrt(float64(discriminant)))) / (2 * a)
-		intersectionPoint = mulWithScalar(r.origin, t)
+		intersectionPoint = vecAdd(mulWithScalar(r.direction, t), r.origin)
 		normal = vecNormalize(vecSub(object.center, intersectionPoint))
-		incidentAngleRadians = math.Acos(float64(dot(r.direction, normal) / (vecMagnitude(r.direction) * vecMagnitude(normal))))
+		//incidentAngleRadians = math.Acos(math.Abs(float64(dot(r.direction, normal) / (vecMagnitude(r.direction) * vecMagnitude(normal))))) //Abs because of the fact that the vectors will mostly point against eachother, and we get the outer angle rather than the inner angle with dot product (I THINK).
 		//Snell's law: n1sintheta1 = n2sintheta2 || ni = refractive indices of i || thetai = angles with normal of i.
-		refractiveAngleRadiansSin = (r.prevRI / 1.0) * float32(math.Sin(incidentAngleRadians))
-		refractiveAngleRadians = math.Asin(float64(refractiveAngleRadiansSin))
-		//normal = negate(normal)
-		tangent = vecNormalize(vecSub(r.direction, mulWithScalar(normal, dot(r.direction, normal)))) //Projecting the incident vector to the tangent plane by removing the 'normal' component. (v.n) -> length of v projected to n (since n is normalized) || (v.n)n = vector pinting in directon n with the length of the projection. Subtract that from v, and we get the remaining (the tangent).
-		refractedNormalComponent = mulWithScalar(normal, float32(math.Cos(refractiveAngleRadians)))
-		refractedTangentComponent = mulWithScalar(tangent, float32(math.Sin(refractiveAngleRadians)))
+		incidentAngleRadiansCos = -dot(r.direction, normal)
+		refractiveAngleRadiansSin = math.Pow(float64((r.prevRI/AIR_RI)), 2) * float64((1 - incidentAngleRadiansCos))
+		refractiveAngleRadiansCos = math.Sqrt(1 - refractiveAngleRadiansSin)
+		r.prevRI = AIR_RI
 		r.origin = intersectionPoint
-		r.direction = vecAdd(refractedNormalComponent, refractedTangentComponent)
-		//r.direction = vecAdd(mulWithScalar(vecAdd(refractedNormalComponent, refractedTangentComponent), 0), r.direction)
-		//randSource := rand.NewSource(1171)
-		//newRand := rand.New(randSource)
-		//newRand.float32 gives a 0-1 float32 value in the interval [0.0, 1.0) (Half Open)
-		//var dirOffset vec3 = vec3{newRand.Float32() * 0.2, newRand.Float32() * 0.2, newRand.Float32() * 0.2}
+		r.direction = vecAdd(mulWithScalar(r.direction, (r.prevRI/object.refractiveIndex)), mulWithScalar(normal, (r.prevRI/object.refractiveIndex)*incidentAngleRadiansCos-float32(refractiveAngleRadiansCos)))
 	}
 	if discriminant == 0.0 { //tangent
-		immediateColor := r.direction
-		r.transparency = object.transparency
-		if r.transparency == 0 {
-			r.color = vecAdd(immediateColor, r.color)
-			return
-		}
+		//immediateColor := r.direction
+		r.color = vec3{1.0, 1.0, 1.0}
+		return
 	}
 }
 
